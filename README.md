@@ -5,6 +5,11 @@ Conversations are stored in the public
 [USAO-Enigma-Messenger-Repo](https://github.com/qtranokc/USAO-Enigma-Messenger-Repo) (UEMR),
 encrypted with a Rotating Caesar Cipher that uses a new random shift every time the file is saved.
 
+## Group Members
+
+- **Steve Nguimsop Tatsiguia:** Contributed the initial Enigma Messenger v1 implementation, existing unit tests, UML diagrams, and setup documentation.
+- **Juan Forero:** Set up both repositories, ran selected local unit tests, added 100 English words and four UserValidator edge-case tests, and documented the group's contributions. Real communication testing is still pending.
+
 ## Setup
 
 Requires Python 3.10+ and git. Clone both repos side by side:
