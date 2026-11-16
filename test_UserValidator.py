@@ -18,6 +18,15 @@ class TestIsValid(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertFalse(self.validator.is_valid(name))
 
+    def test_very_long_username_is_valid(self):
+        name = "A" * 1000
+        self.assertTrue(self.validator.is_valid(name))
+
+    def test_rejects_unicode_digits_and_invisible_characters(self):
+        for name in ["Bob\u0662", "Bob\uff12", "Bo\u200bb", "Bob\x00"]:
+            with self.subTest(name=name):
+                self.assertFalse(self.validator.is_valid(name))
+
 
 class TestConversationFilename(unittest.TestCase):
     def setUp(self):
@@ -34,6 +43,11 @@ class TestConversationFilename(unittest.TestCase):
 
     def test_digits_in_names(self):
         self.assertEqual(self.validator.conversation_filename("user2", "user10"), "user10-user2.txt")
+
+    def test_prefix_names_sort_shorter_first(self):
+        for a, b in [("Anna", "Ann"), ("Ann", "Anna")]:
+            with self.subTest(a=a, b=b):
+                self.assertEqual(self.validator.conversation_filename(a, b), "Ann-Anna.txt")
 
     def test_invalid_user_raises(self):
         with self.assertRaises(ValueError):
@@ -55,6 +69,12 @@ class TestUsersFromFilename(unittest.TestCase):
     def test_rejects_bad_filenames(self):
         for name in ["Alice-Bob", "Alice.txt", "../Alice-Bob.txt", "Alice-Bob.txt.bak",
                      "README.md", "1A-Bob.txt"]:
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    self.validator.users_from_filename(name)
+
+    def test_rejects_filenames_with_whitespace_or_control_characters(self):
+        for name in ["Alice-Bob.txt\n", "Alice-Bob.txt ", "Alice-\tBob.txt"]:
             with self.subTest(name=name):
                 with self.assertRaises(ValueError):
                     self.validator.users_from_filename(name)
