@@ -5,7 +5,7 @@ from unittest import mock
 
 import MessengerApp as messenger_module
 from ConversationManager import ConversationManager
-from GitRepositoryManager import GitError
+from GitRepositoryManager import ACCESS_MESSAGE, GitAccessError, GitError
 from MessengerApp import MessengerApp
 
 
@@ -111,6 +111,16 @@ class TestMain(unittest.TestCase):
             with mock.patch.object(MessengerApp, "run", side_effect=GitError("boom")):
                 self.assertEqual(messenger_module.main(["MessengerApp.py", tmp]), 1)
             self.assertIn("boom", fake_print.call_args[0][0])
+
+    def test_access_error_shows_friendly_message(self):
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("builtins.print") as fake_print:
+            (Path(tmp) / ".git").mkdir()
+            with mock.patch.object(MessengerApp, "run",
+                                   side_effect=GitAccessError(ACCESS_MESSAGE)):
+                self.assertEqual(messenger_module.main(["MessengerApp.py", tmp]), 1)
+            printed = fake_print.call_args[0][0]
+            self.assertIn("write access", printed)
+            self.assertIn("collaborator", printed)
 
     def test_ctrl_c_exits_cleanly(self):
         with tempfile.TemporaryDirectory() as tmp, mock.patch("builtins.print"):

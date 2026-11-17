@@ -8,12 +8,41 @@ class GitError(RuntimeError):
     pass
 
 
+class GitAccessError(GitError):
+    """GitHub refused the request: no write access, or not signed in."""
+
+
+ACCESS_MESSAGE = (
+    "GitHub refused access to the message repo (you don't have write access).\n"
+    "Ask the repo owner to add your GitHub account as a collaborator, and make sure git "
+    "is signed in with that account.\n"
+    "Your message is saved in your local copy and will be uploaded the next time you "
+    "send a message after access is granted."
+)
+
+# Text git prints when GitHub rejects a push for permission or login reasons.
+ACCESS_DENIED_MARKERS = (
+    "permission to",            # remote: Permission to owner/repo.git denied to user.
+    "returned error: 403",      # HTTPS 403 Forbidden
+    "permission denied",        # SSH: Permission denied (publickey)
+    "authentication failed",    # bad or missing credentials
+    "write access to repository not granted",
+)
+
+NETWORK_COMMANDS = {"push", "pull", "fetch", "ls-remote"}
+
+
 class GitRepositoryManager:
     DEFAULT_BRANCH = "main"
 
     def __init__(self, repo_path: str | Path, remote: str = "origin"):
         self.repo_path = Path(repo_path).resolve()
         self.remote = remote
+
+    @staticmethod
+    def is_access_denied(stderr: str) -> bool:
+        text = stderr.lower()
+        return any(marker in text for marker in ACCESS_DENIED_MARKERS)
 
     def run_git(self, *args: str, check: bool = True) -> subprocess.CompletedProcess:
         result = subprocess.run(
@@ -23,6 +52,8 @@ class GitRepositoryManager:
             text=True,
         )
         if check and result.returncode != 0:
+            if args and args[0] in NETWORK_COMMANDS and self.is_access_denied(result.stderr):
+                raise GitAccessError(ACCESS_MESSAGE)
             raise GitError(f"git {' '.join(args)} failed:\n{result.stderr.strip()}")
         return result
 
@@ -43,7 +74,18 @@ class GitRepositoryManager:
         branch = self.remote_branch()
         if branch is None:
             return False
-        self.run_git("pull", "--rebase", self.remote, branch)
+        result = self.run_git("pull", "--rebase", self.remote, branch, check=False)
+        if result.returncode != 0:
+            if self.is_access_denied(result.stderr):
+                raise GitAccessError(ACCESS_MESSAGE)
+            # An earlier unsent message clashes with newer messages on GitHub.
+            # Drop the unsent commit so the clone matches GitHub and stays usable.
+            self.run_git("rebase", "--abort", check=False)
+            self.run_git("reset", "--hard", f"{self.remote}/{branch}", check=False)
+            raise GitError(
+                "An earlier message that was never uploaded clashed with newer messages "
+                "on GitHub, so it was discarded. Please run the messenger again."
+            )
         return True
 
     def commit_and_push(self, files: list[str], message: str = "Update conversation") -> bool:
@@ -54,7 +96,11 @@ class GitRepositoryManager:
         self.run_git("commit", "-m", message)
 
         branch = self.remote_branch() or self.current_branch()
-        if self.run_git("push", self.remote, f"HEAD:{branch}", check=False).returncode != 0:
+        push = self.run_git("push", self.remote, f"HEAD:{branch}", check=False)
+        if push.returncode != 0:
+            if self.is_access_denied(push.stderr):
+                # Keep the local commit so it goes up once access is granted.
+                raise GitAccessError(ACCESS_MESSAGE)
             # Someone else pushed first: replay our commit on top of theirs and retry.
             rebase = self.run_git("pull", "--rebase", self.remote, branch, check=False)
             if rebase.returncode != 0:
