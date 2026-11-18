@@ -65,6 +65,61 @@ class TestOpenConversation(ConversationTestCase):
         self.assertTrue((self.repo / "sub" / "Alice-Bob.txt").is_file())
 
 
+class TestCaseInsensitiveUsernames(ConversationTestCase):
+    """'juan' and 'Juan' must open the same conversation file (bug found in live test)."""
+
+    def setUp(self):
+        super().setUp()
+        self.plain = "[Juan]: Hey Steve\n[Steve]: Hey Juan\n"
+        self.write_encrypted("Juan-Steve.txt", self.plain, 11)
+
+    def test_lowercase_names_open_existing_file(self):
+        for a, b in [("juan", "steve"), ("STEVE", "juan"), ("Steve", "juan"), ("Juan", "Steve")]:
+            with self.subTest(a=a, b=b):
+                self.assertEqual(self.manager.open_conversation(a, b), self.plain)
+                self.assertEqual(self.manager.current_filename, "Juan-Steve.txt")
+
+    def test_no_duplicate_file_created(self):
+        self.manager.open_conversation("juan", "steve")
+        text = self.manager.append_message("steve", "still here")
+        self.manager.save_conversation(self.manager.current_filename, text)
+        self.assertEqual([p.name for p in self.repo.iterdir()], ["Juan-Steve.txt"])
+
+    def test_message_uses_existing_spelling(self):
+        self.manager.open_conversation("juan", "steve")
+        self.assertTrue(self.manager.append_message("juan", "hi").endswith("[Juan]: hi\n"))
+        self.assertTrue(self.manager.append_message("STEVE", "yo").endswith("[Steve]: yo\n"))
+
+    def test_new_conversation_keeps_typed_spelling(self):
+        self.manager.open_conversation("steve", "amy")
+        self.assertEqual(self.manager.current_filename, "amy-steve.txt")
+        self.assertEqual(self.manager.append_message("steve", "hi"), "[steve]: hi\n")
+
+    def test_speaker_name_without_open_conversation(self):
+        self.assertEqual(self.manager.speaker_name("juan"), "juan")
+
+    def test_find_conversation_when_repo_folder_missing(self):
+        manager = ConversationManager(self.repo / "missing")
+        self.assertEqual(manager.find_conversation("juan", "Steve"), "juan-Steve.txt")
+
+
+class TestMatchFilename(unittest.TestCase):
+    def test_exact_match_wins(self):
+        existing = ["juan-steve.txt", "Juan-Steve.txt"]
+        self.assertEqual(ConversationManager.match_filename("Juan-Steve.txt", existing), "Juan-Steve.txt")
+
+    def test_case_insensitive_match(self):
+        self.assertEqual(ConversationManager.match_filename("juan-steve.txt", ["a-b.txt", "Juan-Steve.txt"]),
+                         "Juan-Steve.txt")
+
+    def test_several_case_variants_pick_first_alphabetically(self):
+        existing = ["juan-steve.txt", "JUAN-STEVE.txt"]
+        self.assertEqual(ConversationManager.match_filename("Juan-Steve.txt", existing), "JUAN-STEVE.txt")
+
+    def test_no_match(self):
+        self.assertIsNone(ConversationManager.match_filename("Amy-Bob.txt", ["Juan-Steve.txt"]))
+
+
 class TestAppendMessage(ConversationTestCase):
     def test_first_message(self):
         self.manager.open_conversation("Alice", "Bob")

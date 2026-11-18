@@ -60,6 +60,13 @@ class TestRun(AppTestCase):
         self.assertIn("[Steve]: Hello Alice", output)
         self.assertEqual(self.read_back("Steve", "Alice"), "[Steve]: Hello Alice\n[Alice]: Hi Steve\n")
 
+    def test_username_case_does_not_split_conversation(self):
+        self.make_app(["Juan", "Steve", "Hey Steve"]).run()
+        self.make_app(["steve", "juan", "Hey Juan"]).run()
+        self.assertEqual([p.name for p in self.repo.iterdir()], ["Juan-Steve.txt"])
+        self.assertEqual(self.git.pushed[-1], (["Juan-Steve.txt"], "Update Juan-Steve.txt"))
+        self.assertEqual(self.read_back("Juan", "Steve"), "[Juan]: Hey Steve\n[Steve]: Hey Juan\n")
+
     def test_file_on_disk_is_not_plaintext(self):
         self.make_app(["Steve", "Alice", "top secret plan"]).run()
         self.assertNotIn("secret", (self.repo / "Alice-Steve.txt").read_text())

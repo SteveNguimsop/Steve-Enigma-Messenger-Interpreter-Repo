@@ -38,12 +38,33 @@ class ConversationManager:
     def exists(self, filename: str) -> bool:
         return self.conversation_path(filename).is_file()
 
+    @staticmethod
+    def match_filename(filename: str, existing: list[str]) -> str | None:
+        """Find filename among existing names, ignoring upper/lower case.
+
+        An exact match wins; otherwise the alphabetically first case-insensitive
+        match is used, so "juan-steve.txt" finds "Juan-Steve.txt".
+        """
+        if filename in existing:
+            return filename
+        matches = sorted(name for name in existing if name.lower() == filename.lower())
+        return matches[0] if matches else None
+
+    def find_conversation(self, a: str, b: str) -> str:
+        """Filename for a and b, reusing an existing file's exact capitalization."""
+        filename = self.validator.conversation_filename(a, b)
+        if not self.repo_path.is_dir():
+            return filename
+        existing = [path.name for path in self.repo_path.iterdir() if path.is_file()]
+        return self.match_filename(filename, existing) or filename
+
     def open_conversation(self, a: str, b: str) -> str:
         """Return the decrypted conversation between a and b.
 
-        Creates an empty conversation file if none exists yet.
+        Usernames are matched without regard to case, so "juan" and "Juan" open
+        the same conversation. Creates an empty conversation file if none exists yet.
         """
-        filename = self.validator.conversation_filename(a, b)
+        filename = self.find_conversation(a, b)
         path = self.conversation_path(filename)
 
         if path.is_file():
@@ -58,10 +79,19 @@ class ConversationManager:
         self.current_filename = filename
         return self.current_text
 
+    def speaker_name(self, user: str) -> str:
+        """Spell user the way the open conversation's filename does ("juan" -> "Juan")."""
+        if self.current_filename:
+            for name in self.validator.users_from_filename(self.current_filename):
+                if name.lower() == user.lower():
+                    return name
+        return user
+
     def append_message(self, user: str, text: str) -> str:
         """Add "[user]: text" to the end of the open conversation."""
         if not self.validator.is_valid(user):
             raise ValueError(f"Invalid username: {user!r}")
+        user = self.speaker_name(user)
         message = " ".join(text.split())  # one line, no stray whitespace
         if not message:
             raise ValueError("Message cannot be empty.")
